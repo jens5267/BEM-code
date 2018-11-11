@@ -1,0 +1,528 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jun 22 14:44:49 2018
+
+@author: Jens Reichwein
+
+Shows a GUI with input parameters. The parameters can be plotted, saved and the blade can be seen in 3D
+The aerodynamic values of the blades are stored in .txt files for Re- numbers of 50.000. They can be generated using XFoil.
+So far, only 4-digit NACA airfoils can be used.
+A correction for number of blades could not be succesfully implemented, as the values for the tip showed impossible values.
+
+Input: design wind speed, design rotations, design rotor radius, .txt files of aerodynamic values
+Output: bladed design with chord and twist distribution. 
+"""
+from mpl_toolkits.mplot3d import Axes3D
+from tkinter import *
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import json
+import matplotlib.ticker as mtick
+
+
+try:
+    import IPython
+    shell = IPython.get_ipython()
+    shell.enable_matplotlib(gui='qt')
+except:
+    print('failed') 
+    
+class Bladedesign(object):
+    def __init__(self, master):
+        self.master = master
+        master.title("Blade Design")
+        
+        window_size                 = root.geometry('400x270+100+50')
+        window_title                = root.title('Blade design')
+###############################################################################
+###############          entries          #####################################
+# rotor diameter
+        self.rotor_diameter         = StringVar()
+        self.label_rotor_diameter   = Label(root, text = 'Rotor Diameter [m]')
+        self.label_rotor_diameter.grid(row = 0, column = 0, sticky = E)        
+        self.rotor_diameter_entry   = Entry(root, textvariable = self.rotor_diameter)
+        self.rotor_diameter_entry.delete(0, END)
+        self.rotor_diameter_entry.insert(0, "0.4")
+        self.rotor_diameter_entry.grid(   row = 0, column = 1, sticky = W)
+       
+###############################################################################        
+# hub diameter
+        self.hub_diameter           = StringVar()
+        self.label_hub_diameter     = Label(root, text = 'Hub Diameter [m]')
+        self.label_hub_diameter.grid(row = 1, column = 0, sticky = E)
+        self.hub_diameter_entry     = Entry(root, textvariable = self.hub_diameter)
+        self.hub_diameter_entry.delete(0, END)
+        self.hub_diameter_entry.insert(0, "0.05")        
+        self.hub_diameter_entry.grid(     row = 1, column = 1, sticky = W)
+###############################################################################
+# rotations        
+        self.rotations              = StringVar()
+        self.label_rotations        = Label(root, text = 'Rotations [rpm]:')
+        self.label_rotations.grid(  row = 2, column = 0, sticky = E)
+        self.rotations_entry        = Entry(root, textvariable = self.rotations)
+        self.rotations_entry.delete(0, END)
+        self.rotations_entry.insert(0, "3000")        
+        self.rotations_entry.grid(  row = 2, column = 1, sticky = W)
+###############################################################################
+# wind speed
+        self.v_des                  = StringVar()
+        self.label_v_des            = Label(root, text = 'Design Wind Speed [m/s]:')
+        self.label_v_des.grid(      row = 3, column = 0, sticky = E)
+        self.v_des_entry                  = Entry(root, textvariable = self.v_des)
+        self.v_des_entry.delete(0, END)
+        self.v_des_entry.insert(0, "15")        
+        self.v_des_entry.grid(            row = 3, column = 1, sticky = W)        
+
+###############################################################################
+# blades
+        self.fixed_blades           = IntVar()
+        self.label_blades           = Label(self.master, text="Number of blades:")
+        self.label_blades.grid(row  = 5, column = 0, sticky = E)
+        self.blades_entry           = Entry(self.master)
+        self.blades_entry.grid(row  = 5, column = 1, sticky = W)
+        self.blades_entry.config(state=DISABLED)
+        self.plot                   = IntVar()
+        self.save                   = IntVar()
+###############################################################################
+# efficiency
+        self.efficiency             = StringVar()
+        self.label_efficiency       = Label(master, text = 'Efficiency: [%]')
+        self.label_efficiency.grid( row = 6, column = 0, sticky = E)     
+        self.efficiency_entry             = Entry(master, textvariable = self.efficiency)
+        self.efficiency_entry.delete(0, END)
+        self.efficiency_entry.insert(0, "80")
+        self.efficiency_entry.grid(       row = 6, column = 1, sticky = W) 
+###############################################################################
+#sections
+        self.sections               = StringVar()
+        self.label_sections         = Label(root, text = 'Sections:')
+        self.label_sections.grid(   row = 8, column = 0, sticky = E)
+        self.sections_entry               = Spinbox(root, from_ = 1, to= 2000)
+        self.sections_entry.delete(0, END)
+        self.sections_entry.insert(0, "15")        
+        self.sections_entry.grid(         row = 8, column = 1, sticky = W) 
+###############################################################################        
+###############          3D design          ###################################
+        self.status                 = IntVar()        
+###############################################################################        
+###############          drop down list          ##############################
+# airfoil
+        self.airfoil                = StringVar()
+        self.label_airfoil          = Label(master, text = 'Airfoil:')
+        self.label_airfoil.grid(    row = 4, column = 0, sticky = E)
+        self.airfoils = ('NACA_2408', 'NACA_2412','NACA_2415','NACA_2418','NACA_4412','NACA_4415','NACA_4418', 'S822', 'S1210', 'S2091', 'S4061', 'S4180', 'S4320', 'SD7034', 'SG6040', 'SG6041', 'SG6042', 'SG6043')
+        self.airfoil.set('NACA_2408')
+        self.selection_entry = OptionMenu(master, self.airfoil, *self.airfoils)
+        self.selection_entry.grid(        row = 4, column = 1, sticky = W)        
+###############################################################################        
+###############          buttons          #####################################
+        self.button_calc            = Button(root, text="Calculate", command=self.calculation)
+        self.button_calc.config(    height = 1, width = 10)
+        self.button_calc.grid(      row = 9, column = 1, sticky = W)
+###############################################################################
+        self.button_close           = Button(master, text="Close", command=master.destroy)
+        self.button_close.config(   height = 1, width = 10)
+        self.button_close.grid(     row = 10, column = 1, sticky = W)
+###############################################################################
+        self.button_fix             = Checkbutton(self.master,text='Fixed Number', variable=self.fixed_blades, command=self.fix_blades)
+        self.button_fix.grid(       row = 5, column = 3, sticky = W)       
+##############################################################################
+        self.button_plot           = Checkbutton(self.master, text= 'Plot', variable=self.plot, command=self.plotting)
+        self.button_plot.grid(     row = 9, column = 3, sticky = W)  
+##############################################################################
+        self.button_save           = Checkbutton(self.master, text= 'Save', variable=self.save, command=self.saving)
+        self.button_save.grid(     row = 10, column = 3, sticky = W)          
+###############################################################################
+        self.button_3D             = Checkbutton(self.master,text='Show Blade', variable=self.status, command=self.shaping_3D)
+        self.button_3D.grid(        row = 11, column = 3, sticky = W)                
+###############################################################################
+###############          functions           ##################################
+        self.aerodynamics()
+        self.fix_blades()
+###############################################################################
+    def aerodynamics(self):        
+        self.Profile            = self.airfoil.get()
+        self.Re                 = 100000
+        
+        with open('Airfoils/polars' +'/'+ str(self.Profile) +'/' + self.Profile + '_'+ str(int(self.Re/1000)) + 'k.txt', 'r') as fp:
+            for i in range (12):
+                next(fp)            
+            data = fp.read()
+            alpha = []
+            c_L = []
+            c_D = []
+            for line in data.splitlines():
+                temp = line.split()
+                if temp:
+                    alpha.append(eval(temp[0]))
+                    c_L.append(eval(temp[1]))
+                    c_D.append(eval(temp[2]))    
+                else: 
+                    break
+                
+        L2D = [ x/c_D[i] for i,x in enumerate(c_L) ]       
+        alpha_pos = L2D.index(max(L2D[10:]))     
+        self.alpha = alpha[alpha_pos] 
+        self.cl = c_L[alpha_pos]*0.8   
+        self.cd = c_D[alpha_pos]           
+###############################################################################
+    def fix_blades(self):
+        if self.fixed_blades.get() == 1:          
+            self.blades_entry.config(state = NORMAL)
+                
+        elif self.fixed_blades.get() == 0:       
+            self.blades_entry.config(state = DISABLED)
+###############################################################################
+    def calculation(self):
+        '''
+        Input:  rotor diameter, hub diameter, rotations, design wind velocity, Airfoil, amount of sections, efficiency, if desired: amount of blades
+        Requirements: txt. data of the aerodynamic values of the used airfoils in the same folder
+        Output: BEM code calculated parameters: local radii, chord-/ twist-distribution, thrust, torque, power (-coefficients)   
+        '''
+        self.aerodynamics()
+        
+        self.rotor_diameter     = float(self.rotor_diameter_entry.get())
+        self.hub_diameter       = float(self.hub_diameter_entry.get())
+        self.rotations          = float(self.rotations_entry.get())
+        self.v_des              = float(self.v_des_entry.get())
+        self.profile            = self.airfoil.get()
+        
+        self.sections           = int(self.sections_entry.get())
+        self.efficiency         = float(self.efficiency_entry.get())/100
+        
+        self.frequency          = self.rotations /60
+        self.omega              = 2*np.pi*self.frequency
+        
+        self.nu                 = 15.11*10**-6
+        self.rho                = 1.225
+
+        self.rotor_radius       = self.rotor_diameter/2
+        self.hub_radius         = self.hub_diameter/2
+        self.r_list             = np.linspace(self.hub_radius, self.rotor_radius, self.sections )
+        self.d_r                = (self.rotor_radius- self.hub_radius)/(self.sections)
+        self.Re                 = self.v_des*self.rotor_radius*2/self.nu
+        
+        self.omega              = self.rotations / 60 * (2*np.pi)
+        self.TSR                = self.omega * self.rotor_radius / self.v_des
+        self.v_tip              = self.omega*self.rotor_radius 
+
+        self.A                  = np.pi * (self.rotor_radius**2 -  self.hub_radius**2)
+        self.P_w                = 0.5* self.rho * self.v_des**3 * self.A
+        self.P_t                = self.P_w * 0.59
+        
+        self.F_list = []
+        if self.fixed_blades.get() == 0:
+            if self.TSR < 1:
+                self.B = 5 
+            elif self.TSR >= 1 and self.TSR < 4:
+                self.B = 4
+            elif self.TSR >= 4 and self.TSR < 8:
+                self.B = 3
+            elif self.TSR >= 8 :
+                self.B = 2
+        else:
+            self.B                  = int(self.blades_entry.get())
+        #################################################################################
+        print('{:^8}| {:^8}| {:^8}| {:^8}| {:^8}| {:^8}| {:^8}| {:^8}| {:^8}| {:^8}| {:^8}| {:^8}| {:^8}'.format('It.','sec',"Radius","ax. ind.","chord", 'c/R', 'Twist', 'Re', 'solidity','c_P', 'T', 'F', 'Thrust')) 
+        self.d_r                = (self.rotor_radius-self.hub_radius)/(self.sections -1)
+        
+        self.a_ax_list          = []
+        self.a_rot_list         = []
+        self.radius_list        = []
+        self.F_list             = []
+        self.chord_list         = []
+        self.M_list             = []
+        self.P_list             = []
+        self.c_P_list           = []
+        self.c_T_list           = []
+        self.T_list             = []
+        self.T2_list            = []
+        self.twist_list         = []
+
+
+        for i in range(self.sections):                                                                       
+            self.radius          = self.hub_radius + i * self.d_r
+
+            self.a_ax_init       = 0.25 # can be any value below 0.3, must be smaller than a_ax
+            self.a_ax            = 0.31
+            self.a_rot           = 0.001
+            self.solidity        = 0.01
+            
+            self.chord           = 0
+            self.count           = 0
+        
+            while self.a_ax_init < self.a_ax:#abs(a_ax - a_ax_init)>0:#a_ax > a_ax_init:
+                
+                self.v_rot          = self.radius*2*np.pi*self.frequency
+                self.v_app          = np.sqrt((self.v_des*(1-self.a_ax))**2+(self.v_rot*(1+self.a_rot))**2) 
+                
+                self.TSR_local      = self.TSR * self.radius / self.rotor_radius
+        
+                self.phi_rad        = np.arctan(((1-self.a_ax)*self.v_des)/((1+self.a_rot)*(self.omega*self.radius)))
+                self.phi_deg        = np.rad2deg(self.phi_rad)
+                
+                self.twist          = self.phi_deg-self.alpha
+###############        Prandtl Correction             ##########################                 
+                self.f_tip              = self.B/2 *((self.rotor_radius-self.radius)/(self.radius * np.sin(self.phi_rad)))
+                self.f_hub              = self.B/2 *((self.radius-self.hub_radius)/(self.radius * np.sin(self.phi_rad)))
+               # if self.f <= 0:
+               #     self.f = 0.01 
+                if self.radius > 0.2*self.rotor_radius:
+                   self.F2              = 2/np.pi*(np.arccos(np.exp(-self.f_tip)))
+                else: 
+                   self.F2              = 2/np.pi*(np.arccos(np.exp(-self.f_hub)))
+                self.F = 1
+#                if self.F           == 0:
+#                    self.F          = 0.01
+                #self.F = 1
+                #chord       = 16*np.pi/(self.B) * radius/self.cl * (np.sin(1/3 * np.arctan(self.rotor_radius/radius/self.TSR)))**2
+                #chord       = 8 * F*radius*np.pi*np.sin(phi_rad)/(self.B*self.cl)*((1-self.TSR_local*np.tan(phi_rad))/(np.tan(phi_rad+self.TSR_local)))
+                #self.chord       = 8*np.pi*self.radius/(self.B*self.cl)*(1-np.cos(self.phi_rad))
+                self.chord          = 8*np.pi*self.radius*np.sin(self.phi_rad)/(3*self.B*self.cl*self.TSR_local)
+                self.lift_force     = 0.5*self.rho*self.chord*self.v_app**2*self.cl*self.d_r#*radius
+                self.drag_force     = 0.5*self.rho*self.chord*self.v_app**2*self.cd*self.d_r#*radius
+                
+                self.ca             = self.cl*np.cos(self.phi_rad) + self.cd*np.sin(self.phi_rad)
+                self.cr             = self.cl*np.sin(self.phi_rad) - self.cd*np.cos(self.phi_rad)        
+                
+                self.a_rot          = 1/((4*self.F*(np.sin(self.phi_rad)*np.cos(self.phi_rad)))/(self.cr*self.solidity)-1)   
+                
+                self.d_T_MOM        = 4*np.pi*self.radius*self.rho*self.v_des**2*(1-self.a_ax)*self.a_ax*self.d_r*self.F
+                self.d_M_MOM        = 4*np.pi*self.radius*self.rho*self.v_des*(self.omega*self.radius**2*(1-self.a_ax))*self.a_rot*self.d_r*self.F
+        
+                self.d_T_BE         = self.B*self.ca *0.5*self.rho*self.chord*(self.v_app**2)*self.d_r
+                self.d_M_BE         = self.B*self.cr *0.5*self.rho*self.chord*(self.v_app**2)*self.radius*self.d_r 
+                
+                self.solidity       = self.B*self.chord/(2*np.pi*self.radius)        
+                
+                self.a_c = 0.2
+                self.K           = 4*self.F*np.sin(self.phi_rad)*np.sin(self.phi_rad)/(self.solidity*self.ca)
+                if self.a_ax <= self.a_c:
+                    self.a_ax    = 1/(self.K+1)
+                else:
+                #    self.a_ax    = 1/((4*self.F*(np.sin(self.phi_rad)*np.sin(self.phi_rad)))/(self.ca*self.solidity)+1)
+                    self.a_ax    = 1/2*(2+self.K*(1-2*self.a_c)-np.sqrt((self.K*(1-2*self.a_c)+2)**2+4*(self.K*self.a_c**2-1)))
+
+                self.count       += 1
+                self.d_a         = self.a_ax_init - self.a_ax
+
+                self.B_EP = self.a_ax/(1+self.a_rot)*4*np.sin(self.phi_rad)
+                self.chord2 = self.B_EP *2*np.pi*self.v_des/(self.B*self.cl*self.omega)
+
+                self.Re = self.v_app*self.chord2/self.nu
+                
+                self.epsilon = self.cd/self.cl
+                self.eta = (1-self.epsilon*(1/np.tan(self.phi_rad)*(1/np.tan(self.phi_rad))/((1/np.tan(self.phi_rad)+self.epsilon))))
+                
+                self.c_P = 4*self.a_ax*(1-self.a_ax)**2
+                self.a_ax_init   += 10e-6                
+###############        Glauer Correction             ##########################                
+                self.c_T = (1-self.a_ax)**2*self.solidity*self.ca/(np.sin(self.phi_rad)*np.sin(self.phi_rad))
+
+                self.T = 0.5*self.rho*self.c_T*np.pi*self.radius**2*self.v_des**2
+                self.P = self.omega*self.d_M_BE#*self.c_P
+            
+            self.F_list.append(self.F2)
+            self.c_P_list.append(self.c_P)
+            self.c_T_list.append(self.c_T)
+            self.M_list.append(self.d_M_BE)
+            self.P_list.append(self.P)
+            self.chord_list.append(self.chord)
+            self.a_ax_list.append(self.a_ax)
+            self.a_rot_list.append(self.a_rot)
+            self.radius_list.append(self.radius)
+            #self.F_list.append(self.F)
+            #self.T_list.append(self.d_T_BE)
+            self.T_list.append(self.T)
+            #self.T2_list.append(self.T2)
+            self.twist_list.append(self.twist)
+            print('{:>8,}| {:>8d}| {:>8.3f}| {:>8.3f}| {:>8.3f}| {:>8.3f}| {:>8.3f}| {:>8.0f}| {:>8.3f}| {:>8.3f}| {:>8.3f}| {:>8.3f}| {:>8.3f}'.format(self.count, i+1, self.radius, self.a_ax_init, self.chord2, self.chord2/self.rotor_radius, self.twist, self.Re, self.solidity, self.c_P, self.T, self.F2, self.d_M_MOM))
+        self.M_tot = sum(self.M_list)
+        self.P_tot = sum(self.P_list)*self.efficiency
+      
+
+
+    #############################################################
+        self.turb_name = '%skrpm %sm/s %s m %s %sB'%(self.rotations/1000, self.v_des, self.rotor_diameter, self.profile, self.B)
+        self.plotting()
+###############################################################################
+###############          print           ######################################
+        print('{:<15s}: {:>10.3} m'.format      ('Rot Diameter', self.rotor_diameter))
+        print('{:<15s}: {:>10} m'.format        ('delta r', self.d_r))
+        print('{:<15s}: {:>10}'.format          ('Profile', self.profile))
+        print('{:<15s}: {:>10.3f} m/s'.format   ('des. wind speed', self.v_des))
+        print('{:<15s}: {:>10}'.format          ('Blades', self.B))
+        print('{:<15s}: {:>10.3f} rpm'.format   ('Rotations', self.rotations))
+        if self.v_tip > 80:
+            print('{:<15s}: {:>10.3f} m/s -> above 80 m/s'.format   ('Tip velocity', self.v_tip, ))  
+        else:
+            print('{:<15s}: {:>10.3f} m/s'.format   ('Tip velocity', self.v_tip))
+        print('{:<15s}: {:>10.3f}'.format       ('TSR', self.TSR))
+        print('{:<15s}: {:>10.3f} W'.format     ('Power wind', self.P_w))
+        print('{:<15s}: {:>10.3f} W'.format     ('Power Betz', self.P_t))
+        print('{:<15s}: {:>10.3f} °'.format     ('AoA', self.alpha))
+        print('{:<15s}: {:>10.3f}'.format       ('lift coeff.', self.cl))
+        print('{:<15s}: {:>10.3f}'.format       ('drag coeff.', self.cd))
+        print('{:<15s}: {:>10.3f} W'.format     ('Power WT', self.P_tot))
+        print('{:<15s}: {:>10.3f} Nm'.format    ('Torque WT', self.M_tot))
+  
+        print(15*'----')
+
+###############################################################################
+###############          plot           #######################################
+    def plotting(self):   
+
+
+        plt.figure('plots', figsize=(10,5))
+
+        ax1 = plt.subplot2grid((1,9), (0,0), rowspan = 1, colspan = 4)
+        plt.xlabel('Radius [m]')
+        plt.ylabel('Twist [°]')
+        plt.xlim(0,self.rotor_radius*1.1)
+        plt.ylim(0.0, 35)
+        plt.minorticks_on()
+        plt.grid(True,which='major')
+        plt.grid(True,which='minor', linestyle='--')
+        ax1.plot(self.r_list,self.twist_list, color = 'k', marker = '.')
+        
+        ax2 = plt.subplot2grid((1,9), (0,5), rowspan = 1, colspan = 4)
+        plt.xlabel('Radius [m]')
+        plt.ylabel('Chord [°]')
+        plt.xlim(0,self.rotor_radius*1.1)
+        plt.ylim(0.0, 0.12)
+        plt.minorticks_on()
+        plt.grid(True,which='major')
+        plt.grid(True,which='minor', linestyle='--')
+        ax2.plot(self.r_list,self.chord_list, color = 'k', marker = '.')
+        
+        if self.plot.get() == 1:              
+            plt.show()
+            #self.saving()            
+        if self.plot.get() == 0:
+            plt.close("plots")        
+
+###############################################################################
+###############          save           #######################################
+    def saving(self):
+        if self.save.get() == 1:
+
+            self.turb_save = '%skrpm_%smps_%sm_%s_%sB'%(self.rotations/1000, self.v_des, self.rotor_diameter, self.profile, self.B)
+            plt.savefig('plots/'+ self.turb_save + '.png', dpi=1000)
+            file_name = '%sB_%skrpm_%sm-s_%s_cm_%s'%(self.B, self.rotations/1000, self.v_des, self.rotor_diameter, self.profile)
+            des = {}
+            des['chord'] = self.chord_list
+            des['twist'] = self.twist_list
+            
+            with open('AWT/' + file_name + '.txt','w') as f:
+                print('Blade Design\n', file = f)
+                print('Design wind speed: %.2f m/s' %self.v_des, file = f)
+                print('Blades: \t %s \nRotor Radius: \t %.3f m \nHub Radius: \t %.3f m \nAirfoil: \t %s' %(self.B, self.rotor_radius,self.hub_radius, self.profile), file = f)
+                print('Delta r: %f' %self.d_r, file = f)
+                print('sec \t r \t c \t tw', file = f)
+                for i in range(self.sections):
+                    print('%d: \t %.3f \t %.3f \t %.3f' %((i+1), self.r_list[i], self.chord_list[i], self.twist_list[i]), file = f)
+                print('\n', file = f)
+                print('chord: ',self.chord_list, file = f)
+                print('')
+                print('twist: ', self.twist_list, file = f)
+
+###############################################################################
+###############          3D           #########################################
+    def shaping_3D(self):
+        if self.status.get() == 1:
+            self.airfoil_number = self.airfoil.get()[5:]
+            shell.enable_matplotlib(gui='qt') 
+            fig                     = plt.figure('3D', figsize=(10,5))
+            ax                      = fig.add_subplot(111, projection = '3d')
+   
+            self.m = int(self.airfoil_number[0])/100
+            self.p = int(self.airfoil_number[1])/10
+            self.t = int(self.airfoil_number[2])/10 + int(self.airfoil_number[3])/100
+            self.c = 1.0
+            self.x = np.linspace(0,1,200)
+
+            self.term1 =  0.2969 * (np.sqrt(self.x/self.c))
+            self.term2 = -0.1260 * (self.x/self.c)
+            self.term3 = -0.3516 * (self.x/self.c)**2
+            self.term4 =  0.2843 * (self.x/self.c)**3
+            self.term5 = -0.1015 * (self.x/self.c)**4
+            
+            self.y_t= (5 * self.t * self.c * (self.term1 + self.term2 + self.term3 + self.term4 + self.term5))
+    
+            self.x_u_list = []                                                     # upper x-values
+            self.x_l_list = []                                                     # lower x-values
+            self.y_u_list = []                                                     # upper y-values
+            self.y_l_list = []                                                     # lower y-values
+    
+            for i in range(len(self.x)):
+                if 0 < self.x[i] and self.x[i]<(self.c*self.p):
+                    self.y_c = (self.m/self.p**2)*(2*self.p*(self.x[i]/self.c)-(self.x[i]/self.c)**2)
+                    self.d_xy = (2* self.m/(self.p**2))*(self.p-(self.x[i]/self.c))
+                else:
+                    self.y_c = (self.m/(1-self.p)**2)*((1-2*self.p)+2*self.p*(self.x[i]/self.c)-(self.x[i]/self.c)**2)
+                    self.d_xy = (2* self.m/((1-self.p)**2))*(self.p-(self.x[i]/self.c))
+    
+                self.theta = (np.arctan(self.d_xy))
+                self.x_u = self.x[i] - self.y_t[i] * np.sin(self.theta)
+                self.x_l = self.x[i] + self.y_t[i] * np.sin(self.theta)
+                
+                self.x_u_list.append(self.x_u) 
+                self.x_l_list.append(self.x_l) 
+                
+                self.y_u = self.y_c + self.y_t[i] * np.cos(self.theta)
+                self.y_l = self.y_c - self.y_t[i] * np.cos(self.theta)
+                
+                self.y_u_list.append(self.y_u) 
+                self.y_l_list.append(self.y_l) 
+                
+            self.x_u_list = self.x_u_list[::-1] 
+            self.y_u_list = self.y_u_list[::-1] 
+            
+            self.x_list_init = self.x_u_list+self.x_l_list        
+            self.y_list_init = self.y_u_list+self.y_l_list    
+    
+            for i in range(self.sections):
+                self.chord = self.chord_list[i]
+                
+                self.x_list = [i * self.chord for i in self.x_list_init]
+                self.y_list = [i * self.chord for i in self.y_list_init]
+                self.radius = self.d_r * i + self.hub_radius
+                self.z_list = [self.radius for j in range(len(self.x_list_init))]                
+    
+                self.twist = self.twist_list[i]#self.twist_list[i]
+                self.x_scaled_center = 1/4*max(self.x_list)
+                self.y_scaled_center = 0
+                self.center = np.array([self.x_scaled_center,self.y_scaled_center])
+    
+                self.mat = np.array([self.x_list,self.y_list])        
+        
+                self.rot_angle = -self.twist*np.pi/180
+                self.rot = np.array([[np.cos(self.rot_angle), -np.sin(self.rot_angle)], [np.sin(self.rot_angle), np.cos(self.rot_angle)]])
+                
+                for i in range(len(self.mat)):
+                    for j in range(len(self.mat.T)):
+                        self.mat[i,j] = self.mat[i,j]-self.center[i]
+                
+                self.rot_mat = self.rot @ self.mat
+                for i in range(len(self.rot_mat)):
+                    for j in range(len(self.rot_mat.T)):
+                        self.rot_mat[i,j] = self.rot_mat[i,j]+self.center[i]
+                self.x_scaled_rot= self.rot_mat[0,:].flatten().tolist()
+                self.y_scaled_rot= self.rot_mat[1,:].flatten().tolist() 
+                ax.plot(self.x_scaled_rot, self.y_scaled_rot, self.z_list, label = self.profile)
+                ax.legend()
+                ax.set_xlabel('x axis')
+                ax.set_ylabel('y axis')
+                ax.set_zlabel('z axis')
+                fig.canvas.set_window_title(self.turb_name)
+                plt.xlim(-(self.rotor_radius/2), self.rotor_radius)
+                plt.ylim(-(self.rotor_radius/2), self.rotor_radius)
+                ax.set_zlim(0,self.rotor_radius)  
+
+        if self.status.get() == 0:
+            plt.close('3D')  
+###############################################################################
+root = Tk()
+GUI = Bladedesign(root)
+root.mainloop()
