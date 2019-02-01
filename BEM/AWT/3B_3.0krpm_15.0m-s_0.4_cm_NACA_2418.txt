@@ -1,0 +1,3 @@
+Blade Design
+       Radial Position [m]          Chord Length [m]               Twist [deg]     Pitch Axis Offset [m]  Thread Axis in [% chord]              Airfoil Name            360 Polar Name
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
